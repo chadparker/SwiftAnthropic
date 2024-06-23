@@ -160,7 +160,7 @@ public struct MessageResponse: Decodable {
         }
 
         public func encode(to encoder: any Encoder) throws {
-            var container = try encoder.container(keyedBy: CodingKeys.self)
+            var container = encoder.container(keyedBy: CodingKeys.self)
             switch self {
             case .text(let text):
                 try container.encode("text", forKey: .type)

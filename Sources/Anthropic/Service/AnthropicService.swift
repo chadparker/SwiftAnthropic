@@ -6,6 +6,10 @@
 //
 
 import Foundation
+import Logging
+
+// this may move later
+private let logger = Logger(label: "AnthropicService")
 
 // MARK: Error
 
@@ -117,12 +121,12 @@ extension AnthropicService {
       with request: URLRequest)
       async throws -> T
    {
-      printCurlCommand(request)
+      logCurlCommand(request)
       let (data, response) = try await session.data(for: request)
       guard let httpResponse = response as? HTTPURLResponse else {
          throw APIError.requestFailed(description: "invalid response unable to get a valid HTTPURLResponse")
       }
-      printHTTPURLResponse(httpResponse)
+      logHTTPURLResponse(httpResponse)
       guard httpResponse.statusCode == 200 else {
          var errorMessage = "status code \(httpResponse.statusCode)"
          do {
@@ -134,23 +138,18 @@ extension AnthropicService {
          }
          throw APIError.responseUnsuccessful(description: errorMessage)
       }
-      #if DEBUG
-      print("DEBUG JSON FETCH API = \(try JSONSerialization.jsonObject(with: data, options: .allowFragments) as? [String: Any])")
-      #endif
+      let debugFetchAPI = try JSONSerialization.jsonObject(with: data, options: .allowFragments) as? [String: Any]
+      logger.debug("DEBUG JSON FETCH API = \(String(describing: debugFetchAPI))")
       do {
          return try decoder.decode(type, from: data)
       } catch let DecodingError.keyNotFound(key, context) {
          let debug = "Key '\(key.stringValue)' not found: \(context.debugDescription)"
          let codingPath = "codingPath: \(context.codingPath)"
          let debugMessage = debug + codingPath
-      #if DEBUG
-         print(debugMessage)
-      #endif
+         logger.debug("\(debugMessage)")
          throw APIError.dataCouldNotBeReadMissingData(description: debugMessage)
       } catch {
-      #if DEBUG
-         print("\(error)")
-      #endif
+         logger.debug("\(error)")
          throw APIError.jsonDecodingFailure(description: error.localizedDescription)
       }
    }
@@ -169,13 +168,13 @@ extension AnthropicService {
       with request: URLRequest)
       async throws -> AsyncThrowingStream<T, Error>
    {
-      printCurlCommand(request)
+      logCurlCommand(request)
       
       let (data, response) = try await session.bytes(for: request)
       guard let httpResponse = response as? HTTPURLResponse else {
          throw APIError.requestFailed(description: "invalid response unable to get a valid HTTPURLResponse")
       }
-      printHTTPURLResponse(httpResponse)
+      logHTTPURLResponse(httpResponse)
       guard httpResponse.statusCode == 200 else {
          var errorMessage = "status code \(httpResponse.statusCode)"
          do {
@@ -197,9 +196,8 @@ extension AnthropicService {
                   // TODO: Test the `event` line
                   if line.hasPrefix("data:"),
                      let data = line.dropFirst(5).data(using: .utf8) {
-                     #if DEBUG
-                     print("DEBUG JSON STREAM LINE = \(try JSONSerialization.jsonObject(with: data, options: .allowFragments) as? [String: Any])")
-                     #endif
+                     let debugStreamLine = try JSONSerialization.jsonObject(with: data, options: .allowFragments) as? [String: Any]
+                     logger.debug("DEBUG JSON STREAM LINE = \(String(describing: debugStreamLine))")
                      do {
                         let decoded = try self.decoder.decode(T.self, from: data)
                         continuation.yield(decoded)
@@ -207,14 +205,10 @@ extension AnthropicService {
                         let debug = "Key '\(key.stringValue)' not found: \(context.debugDescription)"
                         let codingPath = "codingPath: \(context.codingPath)"
                         let debugMessage = debug + codingPath
-                     #if DEBUG
-                        print(debugMessage)
-                     #endif
+                        logger.debug("\(debugMessage)")
                         throw APIError.dataCouldNotBeReadMissingData(description: debugMessage)
                      } catch {
-                     #if DEBUG
-                        debugPrint("CONTINUATION ERROR DECODING \(error.localizedDescription)")
-                     #endif
+                        logger.debug("CONTINUATION ERROR DECODING \(error.localizedDescription)")
                         continuation.finish(throwing: error)
                      }
                   }
@@ -224,14 +218,10 @@ extension AnthropicService {
                let debug = "Key '\(key.stringValue)' not found: \(context.debugDescription)"
                let codingPath = "codingPath: \(context.codingPath)"
                let debugMessage = debug + codingPath
-               #if DEBUG
-               print(debugMessage)
-               #endif
+               logger.debug("\(debugMessage)")
                throw APIError.dataCouldNotBeReadMissingData(description: debugMessage)
             } catch {
-               #if DEBUG
-               print("CONTINUATION ERROR DECODING \(error.localizedDescription)")
-               #endif
+               logger.debug("CONTINUATION ERROR DECODING \(error.localizedDescription)")
                continuation.finish(throwing: error)
             }
          }
@@ -243,7 +233,7 @@ extension AnthropicService {
    
    // MARK: Debug Helpers
 
-   private func prettyPrintJSON(
+   private func logJSON(
       _ data: Data)
       -> String?
    {
@@ -255,11 +245,11 @@ extension AnthropicService {
       return prettyPrintedString
    }
    
-   private func printCurlCommand(
+   private func logCurlCommand(
       _ request: URLRequest)
    {
       guard let url = request.url, let httpMethod = request.httpMethod else {
-         debugPrint("Invalid URL or HTTP method.")
+         logger.debug("Invalid URL or HTTP method.")
          return
       }
       
@@ -279,15 +269,13 @@ extension AnthropicService {
       }
       
       // Add body if present
-      if let httpBody = request.httpBody, let bodyString = prettyPrintJSON(httpBody) {
+      if let httpBody = request.httpBody, let bodyString = logJSON(httpBody) {
          // The body string is already pretty printed and should be enclosed in single quotes
          baseCommand += " \\\n-d '\(bodyString)'"
       }
       
       // Print the final command
-   #if DEBUG
-      print(baseCommand)
-   #endif
+      logger.debug("\(baseCommand)")
    }
    
    private func prettyPrintJSON(
@@ -301,27 +289,25 @@ extension AnthropicService {
       return prettyPrintedString
    }
    
-   private func printHTTPURLResponse(
+   private func logHTTPURLResponse(
       _ response: HTTPURLResponse,
       data: Data? = nil)
    {
-   #if DEBUG
-      print("\n- - - - - - - - - - INCOMING RESPONSE - - - - - - - - - -\n")
-      print("URL: \(response.url?.absoluteString ?? "No URL")")
-      print("Status Code: \(response.statusCode)")
-      print("Headers: \(response.allHeaderFields)")
+      logger.debug("\n- - - - - - - - - - INCOMING RESPONSE - - - - - - - - - -\n")
+      logger.debug("URL: \(response.url?.absoluteString ?? "No URL")")
+      logger.debug("Status Code: \(response.statusCode)")
+      logger.debug("Headers: \(response.allHeaderFields)")
       if let mimeType = response.mimeType {
-         print("MIME Type: \(mimeType)")
+         logger.debug("MIME Type: \(mimeType)")
       }
       if let data = data, response.mimeType == "application/json" {
-         print("Body: \(prettyPrintJSON(data))")
+         logger.debug("Body: \(prettyPrintJSON(data))")
       } else if let data = data, let bodyString = String(data: data, encoding: .utf8) {
-         print("Body: \(bodyString)")
+         logger.debug("Body: \(bodyString)")
       }
-      print("\n- - - - - - - - - - - - - - - - - - - - - - - - - - - -\n")
-   #endif
+      logger.debug("\n- - - - - - - - - - - - - - - - - - - - - - - - - - - -\n")
    }
-   
+
    private func maskAuthorizationToken(_ token: String) -> String {
       if token.count > 6 {
          let prefix = String(token.prefix(3))
